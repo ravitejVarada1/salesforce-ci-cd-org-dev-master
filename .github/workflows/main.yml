@@ -1,0 +1,61 @@
+image:
+  name: mklinski/salesforce
+pipelines:
+  branches:
+    feature/*:
+      - step:
+          script:
+            - ant -buildfile build/build.xml deployEmptyCheckOnly -Dsfdc.username=$SFDC_USERNAME -Dsfdc.password=$SFDC_PASS$SFDC_TOKEN -Dsfdc.serverurl=https://$SFDC_SERVERURL
+    master:
+      - step:
+          script:
+            - ant -buildfile build/build.xml deployCode -Dsfdc.username=$SFDC_USERNAME -Dsfdc.password=$SFDC_PASS$SFDC_TOKEN -Dsfdc.serverurl=https://$SFDC_SERVERURL
+    save-changes:
+      - step:
+          script:
+            # Set up SSH key; follow instructions at https://confluence.atlassian.com/display/BITBUCKET/Set+up+SSH+for+Bitbucket+Pipelines
+            - (mkdir -p ~/.ssh ; cat my_known_hosts >> ~/.ssh/known_hosts; umask  077 ; echo $SSH_KEY | base64 -d > ~/.ssh/id_rsa)
+
+            # Read update_to_trigger_pipelines.txt into commitmsg variable
+            - commitmsg="$(<update_to_trigger_pipelines.txt)"
+
+            # Set up repo and checkout master
+            - git remote set-url origin git@bitbucket.org:$BITBUCKET_REPO_OWNER/$BITBUCKET_REPO_SLUG.git
+            - git config --add remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
+            - git fetch
+            - git checkout master
+
+            # Get metadata from server
+            - ant -buildfile build/build.xml getCode -Dsfdc.username=$SFDC_USERNAME -Dsfdc.password=$SFDC_PASS$SFDC_TOKEN -Dsfdc.serverurl=https://$SFDC_SERVERURL
+
+            # Commit any changes to master
+            - git add src/*
+            - git config user.name "$GIT_USERNAME"
+            - git config user.email "$GIT_EMAIL"
+            - if [[ -n $(git status -s) ]] ; then filelist=`git status -s` ; git commit -a -m "$commitmsg" -m "$filelist" ; git push origin master:master ; else echo "No changes detected"; fi
+    destroy/*:
+      - step:
+          script:
+            # Run Destructive Changes
+            - ant -buildfile build/build.xml undeployCode -Dsfdc.username=$SFDC_USERNAME -Dsfdc.password=$SFDC_PASS$SFDC_TOKEN -Dsfdc.serverurl=https://$SFDC_SERVERURL
+            # Update metadata; should be the same as the save-changes Pipeline
+            # Set up SSH key; follow instructions at https://confluence.atlassian.com/display/BITBUCKET/Set+up+SSH+for+Bitbucket+Pipelines
+            - (mkdir -p ~/.ssh ; cat my_known_hosts >> ~/.ssh/known_hosts; umask  077 ; echo $SSH_KEY | base64 -d > ~/.ssh/id_rsa)
+
+            # Use last commit message as the commit message for master
+            - commitmsg="$(git log -1 --pretty=%B)"
+
+            # Set up repo and checkout master
+            - git remote set-url origin git@bitbucket.org:$BITBUCKET_REPO_OWNER/$BITBUCKET_REPO_SLUG.git
+            - git config --add remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
+            - git fetch
+            - git checkout master
+
+            # Get metadata from server
+            - ant -buildfile build/build.xml getCode -Dsfdc.username=$SFDC_USERNAME -Dsfdc.password=$SFDC_PASS$SFDC_TOKEN -Dsfdc.serverurl=https://$SFDC_SERVERURL
+
+            # Commit any changes to master
+            - git add src/*
+            - git config user.name "$GIT_USERNAME"
+            - git config user.email "$GIT_EMAIL"
+            - if [[ -n $(git status -s) ]] ; then filelist=`git status -s` ; git commit -a -m "$commitmsg" -m "$filelist" ; git push origin master:master ; else echo "No changes detected"; fi
